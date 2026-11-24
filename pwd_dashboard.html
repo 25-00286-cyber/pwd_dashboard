@@ -33,9 +33,15 @@
                     <p class="text-[11px] text-red-100 font-medium">SMEAS Non-Verbal PWD Support</p>
                 </div>
             </div>
-            <span id="firebaseSyncPill" class="text-[10px] font-mono-tech font-bold px-2.5 py-1 rounded-lg bg-white text-red-700 shadow-sm">
-                SYNCING...
-            </span>
+            <div class="flex items-center gap-2">
+                <button id="audioToggleBtn" type="button" onclick="toggleAudio()"
+                    class="text-[10px] font-mono-tech font-bold px-2.5 py-1 rounded-lg bg-red-800/80 text-white border border-red-400/40 cursor-pointer">
+                    ALARM: ON
+                </button>
+                <span id="firebaseSyncPill" class="text-[10px] font-mono-tech font-bold px-2.5 py-1 rounded-lg bg-white text-red-700 shadow-sm">
+                    SYNCING...
+                </span>
+            </div>
         </div>
     </header>
 
@@ -136,6 +142,60 @@
         let liveGpsLng = "";
         let liveStationZone = "Mobile AI App";
         let activeFirebaseKey = null;
+        let isAudioEnabled = true;
+        let audioCtx = null;
+
+        function initAudioContext() {
+            if (!audioCtx) {
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                audioCtx = new AudioCtx();
+            }
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+        }
+
+        function toggleAudio() {
+            isAudioEnabled = !isAudioEnabled;
+            const btn = document.getElementById('audioToggleBtn');
+            if (isAudioEnabled) {
+                initAudioContext();
+                if (btn) btn.textContent = "ALARM: ON";
+            } else {
+                if (btn) btn.textContent = "ALARM: OFF";
+            }
+        }
+
+        function playAlarmCue(cueType = 'ALERT') {
+            if (!isAudioEnabled) return;
+            try {
+                initAudioContext();
+                const now = audioCtx.currentTime;
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = cueType === 'DISPATCH' ? 'triangle' : 'sine';
+                osc.frequency.setValueAtTime(cueType === 'DISPATCH' ? 523.25 : 784.0, now);
+                osc.frequency.linearRampToValueAtTime(cueType === 'DISPATCH' ? 659.25 : 987.77, now + 0.18);
+                gain.gain.setValueAtTime(0.18, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start(now);
+                osc.stop(now + 0.35);
+            } catch (_) {}
+        }
+
+        // Capture phone browser GPS automatically if ESP32 NEO-6M hasn't locked yet
+        if (navigator.geolocation) {
+            navigator.geolocation.watchPosition(
+                (pos) => {
+                    if (!liveGpsLat || !liveGpsLng) {
+                        liveGpsLat = pos.coords.latitude.toFixed(6);
+                        liveGpsLng = pos.coords.longitude.toFixed(6);
+                    }
+                },
+                () => {},
+                { enableHighAccuracy: true, maximumAge: 10000 }
+            );
+        }
 
         const aiContexts = {
             MOBILITY: [
@@ -258,7 +318,9 @@
             const userName = senderInput !== '' ? senderInput : 'Mobile AI App User';
             const eventId = `#SMEAS-AI-${Math.floor(100 + Math.random() * 900)}`;
 
-            if (navigator.vibrate) navigator.vibrate([160]);
+            // 1. Trigger Phone Vibration + Acoustic Alarm Cue + Voice Readout
+            if (navigator.vibrate) navigator.vibrate([220, 100, 220]);
+            playAlarmCue('ALERT');
             speakPhraseAloud(messageText);
 
             const banner = document.getElementById('responderStatusBanner');
@@ -271,6 +333,7 @@
             mainText.textContent = `"${messageText}"`;
             subText.textContent = "Waiting for responder acknowledgement on index web...";
 
+            // 2. Push directly to Firebase so Admin Dashboard on laptop alarms & displays it immediately
             try {
                 const res = await fetch(`${FIREBASE_DB_URL}alerts/active.json`, {
                     method: "POST",
@@ -335,6 +398,11 @@
                             mainText.textContent = "Responder resolved your request";
                             subText.textContent = "Tap any message below if you need more help.";
                         } else if (alertData.status === "DISPATCHED") {
+                            if (banner.dataset.dispatched !== "1") {
+                                banner.dataset.dispatched = "1";
+                                if (navigator.vibrate) navigator.vibrate([150, 80, 150]);
+                                playAlarmCue('DISPATCH');
+                            }
                             banner.className = "bg-white rounded-2xl border-2 border-red-600 p-4 shadow-md flex items-start gap-3 transition-all";
                             badgeText.textContent = "Responder On The Way";
                             mainText.textContent = "Help is en route to your location!";
