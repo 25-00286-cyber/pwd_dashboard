@@ -72,7 +72,7 @@
         <!-- Category Selector -->
         <div class="bg-white rounded-2xl border-2 border-red-100 p-4 shadow-sm space-y-3">
             <div class="text-[11px] font-extrabold uppercase tracking-wider text-red-800">
-                1. Choose Assistance Category:
+1. Choose Assistance Category:
             </div>
             <div class="grid grid-cols-2 gap-2">
                 <button onclick="setAiContext('MOBILITY')" id="ctx-MOBILITY" class="ai-ctx-btn bg-red-600 text-white text-xs font-extrabold px-3 py-2.5 rounded-xl transition cursor-pointer">
@@ -93,7 +93,7 @@
         <!-- Quick-Tap Phrases -->
         <div class="bg-white rounded-2xl border-2 border-red-100 p-4 shadow-sm space-y-3">
             <div class="text-[11px] font-extrabold uppercase tracking-wider text-red-800">
-                2. Tap a Message to Send to Admin:
+2. Tap a Message to Send to Admin:
             </div>
             <div id="aiPhraseGrid" class="grid grid-cols-1 gap-2.5"></div>
         </div>
@@ -137,11 +137,16 @@
 
         // Shared Firebase Realtime Database (same database as your main index.html)
         const FIREBASE_DB_URL = "https://smeas-batstateu-default-rtdb.firebaseio.com/";
+        const FIXED_AI_ALERT_KEY = "ai_comm_live";
 
         let liveGpsLat = "";
         let liveGpsLng = "";
         let liveStationZone = "Mobile AI App";
-        let activeFirebaseKey = null;
+        let activeEventId = null;
+        let activeMessageText = "";
+        let isSendingAlert = false;
+        let isSyncingPortal = false;
+        let lastTapTimestamp = 0;
         let isAudioEnabled = true;
         let audioCtx = null;
 
@@ -235,14 +240,26 @@
 
             const grid = document.getElementById('aiPhraseGrid');
             const phrases = aiContexts[ctxKey] || [];
-            grid.innerHTML = phrases.map(phrase => `
+            grid.innerHTML = phrases.map(phrase => {
+                const isThisSent = Boolean(activeEventId) && activeMessageText === phrase;
+                return `
                 <button onclick="sendAiAlert('${phrase.replace(/'/g, "\\'")}')"
-                    class="w-full text-left p-3.5 rounded-2xl border-2 border-red-200 hover:border-red-600 active:bg-red-600 active:text-white hover:bg-red-50 text-sm font-bold text-slate-800 transition flex items-center justify-between gap-3 cursor-pointer">
+                    class="w-full text-left p-3.5 rounded-2xl border-2 ${isThisSent ? 'border-red-600 bg-red-50 text-red-900 shadow-sm' : 'border-red-200 hover:border-red-600 active:bg-red-600 active:text-white hover:bg-red-50 text-slate-800'} text-sm font-bold transition flex items-center justify-between gap-3 cursor-pointer">
                     <span>"${phrase}"</span>
-                    <i data-lucide="send" class="w-4 h-4 text-red-600 flex-shrink-0"></i>
+                    <span class="inline-flex items-center gap-1 flex-shrink-0 text-[10px] uppercase font-extrabold text-red-600">
+                        ${isThisSent ? 'Sent' : ''}
+                        <i data-lucide="${isThisSent ? 'check-circle-2' : 'send'}" class="w-4 h-4 text-red-600"></i>
+                    </span>
                 </button>
-            `).join('');
+                `;
+            }).join('');
             lucide.createIcons();
+        }
+
+        function refreshActivePhraseStyles() {
+            const activeCtxBtn = document.querySelector('.ai-ctx-btn.bg-red-600');
+            const currentCtx = activeCtxBtn ? activeCtxBtn.id.replace('ctx-', '') : 'MOBILITY';
+            setAiContext(currentCtx);
         }
 
         function sendCustomAiMessage() {
@@ -314,29 +331,36 @@
         }
 
         async function sendAiAlert(messageText) {
-            const senderInput = (document.getElementById('senderNameInput')?.value || '').trim();
-            const userName = senderInput !== '' ? senderInput : 'Mobile AI App User';
-            const eventId = `#SMEAS-AI-${Math.floor(100 + Math.random() * 900)}`;
+            // 1-tap send with 800ms lockout so accidental double-taps never duplicate
+            const nowMs = Date.now();
+            if (nowMs - lastTapTimestamp < 800 || isSendingAlert) return;
+            lastTapTimestamp = nowMs;
 
-            // 1. Trigger Phone Vibration + Acoustic Alarm Cue + Voice Readout
-            if (navigator.vibrate) navigator.vibrate([220, 100, 220]);
-            playAlarmCue('ALERT');
-            speakPhraseAloud(messageText);
-
-            const banner = document.getElementById('responderStatusBanner');
-            const badgeText = document.getElementById('statusBadgeText');
-            const mainText = document.getElementById('statusMainText');
-            const subText = document.getElementById('statusSubText');
-
-            banner.className = "bg-red-50 rounded-2xl border-2 border-red-500 p-4 shadow-sm flex items-start gap-3 transition-all";
-            badgeText.textContent = "Message Sent to Admin Queue";
-            mainText.textContent = `"${messageText}"`;
-            subText.textContent = "Waiting for responder acknowledgement on index web...";
-
-            // 2. Push directly to Firebase so Admin Dashboard on laptop alarms & displays it immediately
+            isSendingAlert = true;
             try {
-                const res = await fetch(`${FIREBASE_DB_URL}alerts/active.json`, {
-                    method: "POST",
+                const senderInput = (document.getElementById('senderNameInput')?.value || '').trim();
+                const userName = senderInput !== '' ? senderInput : 'Mobile AI App User';
+                const eventId = `#SMEAS-AI-${Math.floor(100 + Math.random() * 900)}`;
+
+                // Single haptic tap + sound cue + voice readout (no continuous alarm or stop toggle)
+                if (navigator.vibrate) navigator.vibrate([220, 90, 220]);
+                playAlarmCue('ALERT');
+                speakPhraseAloud(messageText);
+
+                const banner = document.getElementById('responderStatusBanner');
+                const badgeText = document.getElementById('statusBadgeText');
+                const mainText = document.getElementById('statusMainText');
+                const subText = document.getElementById('statusSubText');
+
+                delete banner.dataset.dispatched;
+                banner.className = "bg-red-50 rounded-2xl border-2 border-red-400 p-4 shadow-sm flex items-start gap-3 transition-all";
+                badgeText.textContent = "Sending to Admin Dashboard...";
+                mainText.textContent = `"${messageText}"`;
+                subText.textContent = "Transmitting alert to responder queue...";
+
+                // PUT to a single fixed Firebase node so it NEVER creates duplicate/spammed entries
+                const res = await fetch(`${FIREBASE_DB_URL}alerts/active/${FIXED_AI_ALERT_KEY}.json`, {
+                    method: "PUT",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         eventId: eventId,
@@ -355,16 +379,28 @@
                     })
                 });
                 if (res.ok) {
-                    const data = await res.json();
-                    activeFirebaseKey = data?.name || null;
-                    showToast("Sent to Admin Dashboard", `"${messageText}"`);
+                    activeEventId = eventId;
+                    activeMessageText = messageText;
+                    refreshActivePhraseStyles();
+
+                    banner.className = "bg-red-50 rounded-2xl border-2 border-red-600 p-4 shadow-sm flex items-start gap-3 transition-all";
+                    badgeText.textContent = `Delivered to Admin Queue (${eventId})`;
+                    mainText.textContent = `"${messageText}"`;
+                    subText.textContent = "Received by SMEAS Admin Dashboard • Waiting for responder dispatch...";
+                    showToast("Sent & Received by Admin", `"${messageText}"`);
+                } else {
+                    throw new Error(`HTTP ${res.status}`);
                 }
             } catch (err) {
-                showToast("Network Error", "Could not reach Firebase. Check internet connection.");
+                showToast("Send Failed", "Could not reach Firebase. Check internet connection.");
+            } finally {
+                isSendingAlert = false;
             }
         }
 
         async function syncWithMainPortal() {
+            if (isSyncingPortal) return;
+            isSyncingPortal = true;
             const pill = document.getElementById('firebaseSyncPill');
             try {
                 // 1. Read live ESP32 GPS telemetry if active so AI app messages inherit live coordinates
@@ -382,8 +418,8 @@
                 }
 
                 // 2. Check if Admin dispatched or resolved our active message
-                if (activeFirebaseKey) {
-                    const alertRes = await fetch(`${FIREBASE_DB_URL}alerts/active/${activeFirebaseKey}.json`);
+                if (activeEventId) {
+                    const alertRes = await fetch(`${FIREBASE_DB_URL}alerts/active/${FIXED_AI_ALERT_KEY}.json`);
                     if (alertRes.ok) {
                         const alertData = await alertRes.json();
                         const banner = document.getElementById('responderStatusBanner');
@@ -391,8 +427,11 @@
                         const mainText = document.getElementById('statusMainText');
                         const subText = document.getElementById('statusSubText');
 
-                        if (!alertData) {
-                            activeFirebaseKey = null;
+                        if (!alertData || alertData.status === "RESOLVED") {
+                            activeEventId = null;
+                            activeMessageText = "";
+                            delete banner.dataset.dispatched;
+                            refreshActivePhraseStyles();
                             banner.className = "bg-white rounded-2xl border-2 border-red-200 p-4 shadow-sm flex items-start gap-3 transition-all";
                             badgeText.textContent = "Request Completed";
                             mainText.textContent = "Responder resolved your request";
@@ -412,12 +451,19 @@
                 }
             } catch (_) {
                 if (pill) pill.textContent = "OFFLINE";
+            } finally {
+                isSyncingPortal = false;
             }
         }
 
         function showToast(title, message) {
             const container = document.getElementById('toastContainer');
             if (!container) return;
+
+            while (container.children.length >= 1) {
+                container.firstElementChild.remove();
+            }
+
             const toast = document.createElement('div');
             toast.className = "pointer-events-auto max-w-sm w-full rounded-2xl p-3.5 shadow-xl border-2 bg-white text-slate-900 border-red-600 flex items-start gap-3 transition-all";
             toast.innerHTML = `
@@ -434,7 +480,7 @@
             setTimeout(() => {
                 toast.style.opacity = '0';
                 setTimeout(() => toast.remove(), 300);
-            }, 3500);
+            }, 3000);
         }
 
         setAiContext('MOBILITY');
