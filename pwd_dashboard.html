@@ -95,16 +95,28 @@
         <!-- Custom Message Input -->
         <div class="bg-white rounded-2xl border-2 border-red-100 p-4 shadow-sm space-y-2">
             <label for="customAiMessage" class="block text-xs font-extrabold text-slate-700">
-                Or Type a Custom Message:
+                Or Type a Custom Message (AI Auto-Suggests &amp; Sends):
             </label>
             <div class="flex gap-2">
-                <input type="text" id="customAiMessage" placeholder="Type your message here..."
+                <input type="text" id="customAiMessage" placeholder="Type your message or describe what you need..."
+                    oninput="handleSmartAiSuggest(this.value)"
                     onkeydown="if(event.key==='Enter') sendCustomAiMessage()"
                     class="flex-grow border border-red-200 rounded-xl px-3.5 py-2.5 text-sm font-medium focus:outline-none focus:border-red-600">
                 <button onclick="sendCustomAiMessage()"
                     class="bg-red-600 hover:bg-red-700 active:scale-95 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl flex items-center gap-1.5 transition cursor-pointer flex-shrink-0 shadow-md shadow-red-600/20">
                     <i data-lucide="send" class="w-4 h-4"></i>
                     <span>Send</span>
+                </button>
+            </div>
+            <!-- Smart AI Suggestion Pill -->
+            <div id="smartAiSuggestionBox" class="hidden pt-1.5">
+                <button id="smartAiSuggestionBtn" type="button" onclick="applySmartAiSuggestion()"
+                    class="w-full text-left bg-red-50 hover:bg-red-100 border border-red-300 rounded-xl px-3 py-2 text-xs font-bold text-red-900 flex items-center justify-between gap-2 transition cursor-pointer">
+                    <span class="flex items-center gap-1.5">
+                        <i data-lucide="sparkles" class="w-3.5 h-3.5 text-red-600 flex-shrink-0"></i>
+                        <span id="smartAiSuggestionText"></span>
+                    </span>
+                    <span class="text-[10px] uppercase font-extrabold bg-red-600 text-white px-2 py-0.5 rounded-md flex-shrink-0">Tap to Send</span>
                 </button>
             </div>
         </div>
@@ -178,7 +190,67 @@
             const text = input.value.trim();
             if (!text) return;
             input.value = '';
+            const sugBox = document.getElementById('smartAiSuggestionBox');
+            if (sugBox) sugBox.classList.add('hidden');
             sendAiAlert(text);
+        }
+
+        let currentSmartSuggestion = "";
+
+        function handleSmartAiSuggest(rawVal) {
+            const q = (rawVal || "").trim().toLowerCase();
+            const sugBox = document.getElementById('smartAiSuggestionBox');
+            const sugText = document.getElementById('smartAiSuggestionText');
+            if (!sugBox || !sugText) return;
+
+            if (q.length < 2) {
+                sugBox.classList.add('hidden');
+                currentSmartSuggestion = "";
+                return;
+            }
+
+            let suggestion = "";
+            if (q.includes("cr") || q.includes("restroom") || q.includes("toilet") || q.includes("banyo")) {
+                suggestion = "Where is the nearest accessible restroom? Please guide me.";
+            } else if (q.includes("wheelchair") || q.includes("ramp") || q.includes("hagdan") || q.includes("stairs")) {
+                suggestion = "I need wheelchair ramp or elevator assistance right away.";
+            } else if (q.includes("deaf") || q.includes("sign") || q.includes("hear") || q.includes("speak") || q.includes("pipe")) {
+                suggestion = "I am deaf/speech-impaired; please communicate via text or sign language.";
+            } else if (q.includes("dizzy") || q.includes("hilo") || q.includes("pain") || q.includes("sick") || q.includes("clinic") || q.includes("med")) {
+                suggestion = "Medical assistance needed: I feel unwell and need first-aid support.";
+            } else if (q.includes("lost") || q.includes("where") || q.includes("saan") || q.includes("exit") || q.includes("gate")) {
+                suggestion = "I am lost; please meet me at my current location to guide me.";
+            } else if (q.includes("water") || q.includes("tubig") || q.includes("sit") || q.includes("upo") || q.includes("rest")) {
+                suggestion = "I need drinking water and a priority seating area to rest.";
+            }
+
+            if (suggestion) {
+                currentSmartSuggestion = suggestion;
+                sugText.textContent = `AI Suggests: "${suggestion}"`;
+                sugBox.classList.remove('hidden');
+            } else {
+                sugBox.classList.add('hidden');
+                currentSmartSuggestion = "";
+            }
+        }
+
+        function applySmartAiSuggestion() {
+            if (!currentSmartSuggestion) return;
+            const input = document.getElementById('customAiMessage');
+            if (input) input.value = '';
+            const sugBox = document.getElementById('smartAiSuggestionBox');
+            if (sugBox) sugBox.classList.add('hidden');
+            sendAiAlert(currentSmartSuggestion);
+            currentSmartSuggestion = "";
+        }
+
+        function speakPhraseAloud(phrase) {
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+                const utter = new SpeechSynthesisUtterance(phrase);
+                utter.rate = 0.95;
+                window.speechSynthesis.speak(utter);
+            }
         }
 
         async function sendAiAlert(messageText) {
@@ -187,6 +259,7 @@
             const eventId = `#SMEAS-AI-${Math.floor(100 + Math.random() * 900)}`;
 
             if (navigator.vibrate) navigator.vibrate([160]);
+            speakPhraseAloud(messageText);
 
             const banner = document.getElementById('responderStatusBanner');
             const badgeText = document.getElementById('statusBadgeText');
