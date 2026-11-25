@@ -366,15 +366,15 @@
                     body: JSON.stringify({
                         eventId: eventId,
                         userName: userName,
-                        userProfile: "AI Communication App",
+                        userProfile: "PWD Mobile AI Communication",
                         rawType: "AI_COMM",
                         type: "AI Communication",
                         payload: messageText,
                         zone: liveStationZone,
                         lat: String(liveGpsLat || ""),
                         lng: String(liveGpsLng || ""),
-                        gpsFix: "WEB_STATION",
-                        source: "WEB_STATION",
+                        gpsFix: liveGpsLat && liveGpsLng ? "PHONE_GPS" : "ESP32_GPS",
+                        source: "WEB_PWD",
                         status: "PENDING",
                         timestamp: Date.now()
                     })
