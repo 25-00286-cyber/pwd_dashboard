@@ -390,10 +390,10 @@
                     refreshActivePhraseStyles();
 
                     banner.className = "bg-red-50 rounded-2xl border-2 border-red-600 p-4 shadow-sm flex items-start gap-3 transition-all";
-                    badgeText.textContent = `Delivered to Admin Queue (${eventId})`;
+                    badgeText.textContent = "Sent • Awaiting Admin Receipt";
                     mainText.textContent = `"${messageText}"`;
-                    subText.textContent = "Received by SMEAS Admin Dashboard • Waiting for responder dispatch...";
-                    showToast("Sent & Received by Admin", `"${messageText}"`);
+                    subText.textContent = "Firebase accepted your request. Waiting for the Admin dashboard to confirm it appears in the dispatch queue.";
+                    showToast("Request Sent", "Waiting for Admin dashboard confirmation.");
                 } else {
                     throw new Error(`HTTP ${res.status}`);
                 }
@@ -432,6 +432,14 @@
                         const badgeText = document.getElementById('statusBadgeText');
                         const mainText = document.getElementById('statusMainText');
                         const subText = document.getElementById('statusSubText');
+
+                        if (alertData && alertData.adminReceivedAt && alertData.status !== "DISPATCHED" && alertData.status !== "RESOLVED") {
+                            badgeText.textContent = "Received • In Admin Dispatch Queue";
+                            subText.textContent = "SMEAS Admin confirmed this request is visible in Active Alerts & Dispatch Queue.";
+                        } else if (alertData && alertData.status === "PENDING") {
+                            badgeText.textContent = "Sent • Awaiting Admin Receipt";
+                            subText.textContent = "Your request is saved in Firebase and is waiting to appear in the Admin dispatch queue.";
+                        }
 
                         if (!alertData || alertData.status === "RESOLVED") {
                             activeEventId = null;
