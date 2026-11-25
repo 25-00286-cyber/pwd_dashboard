@@ -137,12 +137,13 @@
 
         // Shared Firebase Realtime Database (same database as your main index.html)
         const FIREBASE_DB_URL = "https://smeas-batstateu-default-rtdb.firebaseio.com/";
-        const FIXED_AI_ALERT_KEY = "ai_comm_live";
+        const AI_ALERTS_PATH = "alerts/active";
 
         let liveGpsLat = "";
         let liveGpsLng = "";
         let liveStationZone = "Mobile AI App";
         let activeEventId = null;
+        let activeFirebaseKey = null;
         let activeMessageText = "";
         let isSendingAlert = false;
         let isSyncingPortal = false;
@@ -359,8 +360,8 @@
                 subText.textContent = "Transmitting alert to responder queue...";
 
                 // PUT to a single fixed Firebase node so it NEVER creates duplicate/spammed entries
-                const res = await fetch(`${FIREBASE_DB_URL}alerts/active/${FIXED_AI_ALERT_KEY}.json`, {
-                    method: "PUT",
+                const res = await fetch(`${FIREBASE_DB_URL}${AI_ALERTS_PATH}.json`, {
+                    method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         eventId: eventId,
@@ -379,7 +380,12 @@
                     })
                 });
                 if (res.ok) {
+                    const firebaseResult = await res.json();
+                    if (!firebaseResult || !firebaseResult.name) {
+                        throw new Error("Firebase did not return an alert key.");
+                    }
                     activeEventId = eventId;
+                    activeFirebaseKey = firebaseResult.name;
                     activeMessageText = messageText;
                     refreshActivePhraseStyles();
 
@@ -418,8 +424,8 @@
                 }
 
                 // 2. Check if Admin dispatched or resolved our active message
-                if (activeEventId) {
-                    const alertRes = await fetch(`${FIREBASE_DB_URL}alerts/active/${FIXED_AI_ALERT_KEY}.json`);
+                if (activeEventId && activeFirebaseKey) {
+                    const alertRes = await fetch(`${FIREBASE_DB_URL}${AI_ALERTS_PATH}/${activeFirebaseKey}.json`);
                     if (alertRes.ok) {
                         const alertData = await alertRes.json();
                         const banner = document.getElementById('responderStatusBanner');
@@ -429,6 +435,7 @@
 
                         if (!alertData || alertData.status === "RESOLVED") {
                             activeEventId = null;
+                            activeFirebaseKey = null;
                             activeMessageText = "";
                             delete banner.dataset.dispatched;
                             refreshActivePhraseStyles();
