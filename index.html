@@ -952,6 +952,17 @@
                         activeAlerts.unshift(importedAlert);
                         changed = true;
 
+                        // Confirm receipt on the shared record only after Admin has imported it.
+                        // The PWD phone watches this field before claiming Admin received the request.
+                        fetch(`${firebaseDbUrl}alerts/active/${key}.json`, {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                adminReceivedAt: Date.now(),
+                                adminReceivedBy: "SMEAS_WEB_ADMIN"
+                            })
+                        }).catch(err => console.warn("Admin receipt acknowledgement failed:", err));
+
                         currentZone = importedAlert.zone;
                         if (importedAlert.lat) currentLat = importedAlert.lat;
                         if (importedAlert.lng) currentLng = importedAlert.lng;
