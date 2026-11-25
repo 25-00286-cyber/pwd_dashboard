@@ -868,11 +868,6 @@
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(nextStatus)
                 });
-                if (nextStatus === "RESOLVED") {
-                    await fetch(`${firebaseDbUrl}alerts/active/${alertObj.firebaseKey}.json`, {
-                        method: "DELETE"
-                    });
-                }
             } catch (err) {
                 console.warn("Firebase status sync failed:", err);
             }
@@ -895,16 +890,8 @@
                 const remoteEntries = rawData && typeof rawData === "object" ? Object.entries(rawData) : [];
                 const remoteKeys = new Set(remoteEntries.map(([k]) => k));
 
-                // On first page load, mark any old leftover alerts from previous sessions as stale so they do NOT trigger alarms
-                if (isInitialFirebaseSync) {
-                    isInitialFirebaseSync = false;
-                    for (const [key] of remoteEntries) {
-                        ignoredStaleKeys.add(key);
-                        processedAlertKeys.add(key);
-                        fetch(`${firebaseDbUrl}alerts/active/${key}.json`, { method: "DELETE" }).catch(() => {});
-                    }
-                    return;
-                }
+                // Keep Firebase records intact. The mobile PWD page and Admin must share alert status.
+                if (isInitialFirebaseSync) isInitialFirebaseSync = false;
 
                 let changed = false;
                 for (let i = activeAlerts.length - 1; i >= 0; i--) {
@@ -916,19 +903,17 @@
                 }
 
                 for (const [key, item] of remoteEntries) {
-                    if (!item || typeof item !== "object" || ignoredStaleKeys.has(key)) continue;
+                    if (!item || typeof item !== "object") continue;
                     const existing = activeAlerts.find(a => a.firebaseKey === key || (item.eventId && a.id === item.eventId));
                     if (!existing) {
                         const dedupId = item.eventId || key;
-                        const alertTypeKey = `HW:${item.rawType || "ASSISTANCE"}`;
+                        const alertSource = item.source || "ESP32_HARDWARE";
+                        const alertTypeKey = `${alertSource}:${item.rawType || "ASSISTANCE"}`;
                         const nowMs = Date.now();
-                        const lastTriggered = lastAlertTriggerByType.get(alertTypeKey) || 0;
 
-                        if (processedAlertKeys.has(key) || processedAlertKeys.has(dedupId) || (nowMs - lastTriggered < ALERT_COOLDOWN_MS)) {
-                            processedAlertKeys.add(key);
-                            processedAlertKeys.add(dedupId);
-                            continue;
-                        }
+                        // Deduplicate only the same Firebase record/event. Distinct PWD users
+                        // must not be suppressed by a shared per-type cooldown.
+                        if (processedAlertKeys.has(key) || processedAlertKeys.has(dedupId)) continue;
 
                         processedAlertKeys.add(key);
                         processedAlertKeys.add(dedupId);
@@ -938,7 +923,7 @@
                         const importedAlert = {
                             id: item.eventId || `#SMEAS-${eventCounter}`,
                             firebaseKey: key,
-                            source: "ESP32_HARDWARE",
+                            source: alertSource,
                             time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
                             createdAtMs: nowMs,
                             userName: item.userName || "Hardware Station #01 User",
@@ -968,8 +953,8 @@
 
                         playSoundCue(importedAlert.rawType === "EMERGENCY" ? "EMERGENCY" : "ALERT");
                         showToast(
-                            `ESP32 Alert: ${importedAlert.type}`,
-                            `${importedAlert.zone} (${importedAlert.coords})`,
+                            `${alertSource === "WEB_PWD" ? "PWD Mobile Alert" : alertSource === "WEB_STATION" ? "Web Station Alert" : "ESP32 Alert"}: ${importedAlert.type}`,
+                            `${importedAlert.userName} • ${importedAlert.zone} (${importedAlert.coords})`,
                             importedAlert.rawType === "EMERGENCY" ? "emergency" : "info"
                         );
                     } else if (item.status && existing.status !== item.status) {
@@ -1093,19 +1078,6 @@
                 firebasePollTimer = setInterval(pollFirebaseAlerts, 1200);
             }
         }
-
-        // Clean up web-created active alerts from Firebase when the browser tab is closed or refreshed
-        window.addEventListener('beforeunload', () => {
-            if (!hasFirebaseBridge()) return;
-            for (const alertObj of activeAlerts) {
-                if (alertObj.source === "WEB_STATION" && alertObj.firebaseKey) {
-                    fetch(`${firebaseDbUrl}alerts/active/${alertObj.firebaseKey}.json`, {
-                        method: "DELETE",
-                        keepalive: true
-                    }).catch(() => {});
-                }
-            }
-        });
 
         function togglePasswordVisibility() {
             const pwdInput = document.getElementById('adminPassword');
