@@ -904,6 +904,15 @@
 
                 for (const [key, item] of remoteEntries) {
                     if (!item || typeof item !== "object") continue;
+
+                    // Resolved Firebase records remain available to the PWD phone for status
+                    // confirmation, but must never be re-imported as fresh Admin incidents.
+                    if (item.status === "RESOLVED") {
+                        processedAlertKeys.add(key);
+                        if (item.eventId) processedAlertKeys.add(item.eventId);
+                        continue;
+                    }
+
                     const existing = activeAlerts.find(a => a.firebaseKey === key || (item.eventId && a.id === item.eventId));
                     if (!existing) {
                         const dedupId = item.eventId || key;
