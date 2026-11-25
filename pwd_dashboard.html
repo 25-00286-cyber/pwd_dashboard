@@ -226,7 +226,7 @@
                 "Where is the nearest accessible restroom?",
                 "How do I reach the main exit ramp?",
                 "Please guide me to the PWD priority lane.",
-                "I am lost; please meet me at my location."
+                "I am lost; please meet me at my GPS pin."
             ]
         };
 
@@ -341,7 +341,7 @@
             try {
                 const senderInput = (document.getElementById('senderNameInput')?.value || '').trim();
                 const userName = senderInput !== '' ? senderInput : 'Mobile AI App User';
-                const eventId = `#SMEAS-AI-${Math.floor(100 + Math.random() * 900)}`;
+                const eventId = `#SMEAS-PWD-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 
                 // Single haptic tap + sound cue + voice readout (no continuous alarm or stop toggle)
                 if (navigator.vibrate) navigator.vibrate([220, 90, 220]);
